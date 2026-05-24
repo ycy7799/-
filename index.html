@@ -1,0 +1,531 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport"
+content="width=device-width,initial-scale=1.0">
+
+<title>Pi水果消消乐</title>
+
+<script src="https://sdk.minepi.com/pi-sdk.js"></script>
+
+<style>
+
+*{
+margin:0;
+padding:0;
+box-sizing:border-box;
+}
+
+body{
+background:#1b1038;
+font-family:Arial;
+display:flex;
+justify-content:center;
+align-items:center;
+min-height:100vh;
+color:#fff;
+overflow:hidden;
+}
+
+.game{
+width:95vw;
+max-width:520px;
+background:rgba(255,255,255,.08);
+padding:15px;
+border-radius:20px;
+}
+
+.title{
+text-align:center;
+font-size:32px;
+margin-bottom:15px;
+}
+
+.topbar{
+display:flex;
+justify-content:space-between;
+margin-bottom:10px;
+font-size:18px;
+}
+
+.board{
+display:grid;
+grid-template-columns:repeat(8,1fr);
+gap:5px;
+}
+
+.cell{
+aspect-ratio:1;
+background:rgba(255,255,255,.12);
+border-radius:12px;
+display:flex;
+justify-content:center;
+align-items:center;
+font-size:32px;
+cursor:pointer;
+transition:.15s;
+}
+
+.cell:active{
+transform:scale(.9);
+}
+
+.selected{
+box-shadow:0 0 15px #fff;
+transform:scale(1.1);
+}
+
+.pi{
+text-align:center;
+margin-bottom:10px;
+color:#7fffd4;
+font-size:14px;
+}
+
+</style>
+</head>
+
+<body>
+
+<div class="game">
+
+<div class="title">
+🍓 Pi水果消消乐 🍇
+</div>
+
+<div class="pi" id="piStatus">
+🟢 游戏已启动
+</div>
+
+<div class="topbar">
+<div>⭐ <span id="score">0</span></div>
+<div>⏱️ <span id="time">60</span></div>
+<div>🔥 <span id="combo">0</span></div>
+</div>
+
+<div class="board" id="board"></div>
+
+</div>
+
+<script>
+
+// ==================== Pi后台登录 ====================
+
+function initPi(){
+
+try{
+
+if(window.Pi){
+
+Pi.init({
+version:"2.0",
+sandbox:true
+});
+
+setTimeout(async()=>{
+
+try{
+
+const auth =
+await Pi.authenticate(
+['username'],
+()=>{}
+);
+
+console.log(auth);
+
+document
+.getElementById("piStatus")
+.innerHTML =
+"🟢 Pi已连接";
+
+}catch(e){
+
+console.log(e);
+
+document
+.getElementById("piStatus")
+.innerHTML =
+"🟡 游戏模式";
+}
+
+},3000);
+
+}
+
+}catch(err){
+
+console.log(err);
+}
+
+}
+
+// ==================== 游戏 ====================
+
+const fruits=[
+"🍎","🍇","🍓","🍊",
+"🥝","🍋","🍉","🫐"
+];
+
+const rows=8;
+const cols=8;
+
+let grid=[];
+
+let selected=null;
+
+let score=0;
+
+let combo=0;
+
+let timeLeft=60;
+
+let gameRunning=true;
+
+const board=
+document.getElementById("board");
+
+const scoreEl=
+document.getElementById("score");
+
+const comboEl=
+document.getElementById("combo");
+
+const timeEl=
+document.getElementById("time");
+
+// ==================== 创建棋盘 ====================
+
+function createBoard(){
+
+grid=[];
+
+for(let r=0;r<rows;r++){
+
+grid[r]=[];
+
+for(let c=0;c<cols;c++){
+
+grid[r][c]=
+fruits[
+Math.floor(
+Math.random()*fruits.length
+)
+];
+
+}
+
+}
+
+}
+
+// ==================== 渲染 ====================
+
+function renderBoard(){
+
+board.innerHTML="";
+
+for(let r=0;r<rows;r++){
+
+for(let c=0;c<cols;c++){
+
+const cell=
+document.createElement("div");
+
+cell.className="cell";
+
+cell.innerHTML=grid[r][c];
+
+if(
+selected &&
+selected.r===r &&
+selected.c===c
+){
+cell.classList.add("selected");
+}
+
+cell.onclick=
+()=>clickCell(r,c);
+
+board.appendChild(cell);
+
+}
+
+}
+
+}
+
+// ==================== 点击 ====================
+
+function clickCell(r,c){
+
+if(!gameRunning)return;
+
+if(!selected){
+
+selected={r,c};
+
+renderBoard();
+
+return;
+}
+
+const sr=selected.r;
+const sc=selected.c;
+
+selected=null;
+
+if(
+Math.abs(sr-r)+
+Math.abs(sc-c)!==1
+){
+
+renderBoard();
+
+return;
+}
+
+swap(sr,sc,r,c);
+
+renderBoard();
+
+const matches=
+findMatches();
+
+if(matches.length){
+
+combo++;
+
+comboEl.innerHTML=combo;
+
+clearMatches(matches);
+
+}else{
+
+swap(sr,sc,r,c);
+
+combo=0;
+
+comboEl.innerHTML=0;
+
+renderBoard();
+
+}
+
+}
+
+// ==================== 交换 ====================
+
+function swap(r1,c1,r2,c2){
+
+[
+grid[r1][c1],
+grid[r2][c2]
+]=[
+grid[r2][c2],
+grid[r1][c1]
+];
+
+}
+
+// ==================== 检测 ====================
+
+function findMatches(){
+
+let matches=[];
+
+// 横向
+for(let r=0;r<rows;r++){
+
+for(let c=0;c<cols-2;c++){
+
+if(
+grid[r][c]===grid[r][c+1]
+&&
+grid[r][c]===grid[r][c+2]
+){
+
+matches.push([r,c]);
+matches.push([r,c+1]);
+matches.push([r,c+2]);
+
+}
+
+}
+
+}
+
+// 纵向
+for(let c=0;c<cols;c++){
+
+for(let r=0;r<rows-2;r++){
+
+if(
+grid[r][c]===grid[r+1][c]
+&&
+grid[r][c]===grid[r+2][c]
+){
+
+matches.push([r,c]);
+matches.push([r+1,c]);
+matches.push([r+2,c]);
+
+}
+
+}
+
+}
+
+return matches;
+
+}
+
+// ==================== 消除 ====================
+
+function clearMatches(matches){
+
+matches.forEach(([r,c])=>{
+
+grid[r][c]=null;
+
+});
+
+score+=matches.length*10;
+
+scoreEl.innerHTML=score;
+
+setTimeout(()=>{
+
+drop();
+
+fill();
+
+renderBoard();
+
+setTimeout(()=>{
+
+const next=
+findMatches();
+
+if(next.length){
+
+clearMatches(next);
+
+}
+
+},200);
+
+},200);
+
+}
+
+// ==================== 下落 ====================
+
+function drop(){
+
+for(let c=0;c<cols;c++){
+
+let arr=[];
+
+for(let r=rows-1;r>=0;r--){
+
+if(grid[r][c]){
+
+arr.push(grid[r][c]);
+
+}
+
+}
+
+while(arr.length<rows){
+
+arr.push(null);
+
+}
+
+for(
+let r=rows-1,i=0;
+r>=0;
+r--,i++
+){
+
+grid[r][c]=arr[i];
+
+}
+
+}
+
+}
+
+// ==================== 填充 ====================
+
+function fill(){
+
+for(let r=0;r<rows;r++){
+
+for(let c=0;c<cols;c++){
+
+if(!grid[r][c]){
+
+grid[r][c]=
+fruits[
+Math.floor(
+Math.random()*fruits.length
+)
+];
+
+}
+
+}
+
+}
+
+}
+
+// ==================== 倒计时 ====================
+
+function startTimer(){
+
+setInterval(()=>{
+
+if(!gameRunning)return;
+
+timeLeft--;
+
+timeEl.innerHTML=timeLeft;
+
+if(timeLeft<=0){
+
+gameRunning=false;
+
+alert(
+"🎉 游戏结束\n得分："+score
+);
+
+}
+
+},1000);
+
+}
+
+// ==================== 启动 ====================
+
+window.onload=()=>{
+
+// 游戏先启动
+createBoard();
+
+renderBoard();
+
+startTimer();
+
+// Pi后台连接
+initPi();
+
+};
+
+</script>
+
+</body>
+</html>
