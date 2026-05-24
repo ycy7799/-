@@ -1,0 +1,548 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no"/>
+
+<title>🍓 Pi 炫彩水果消消乐</title>
+
+<script src="https://sdk.minepi.com/pi-sdk.js"></script>
+
+<style>
+*{
+    margin:0;
+    padding:0;
+    box-sizing:border-box;
+    user-select:none;
+    -webkit-tap-highlight-color:transparent;
+}
+
+body{
+    background:
+    radial-gradient(circle at top,#2b1055,#12002f 70%);
+    min-height:100vh;
+    overflow:hidden;
+    font-family:Arial,sans-serif;
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    color:white;
+}
+
+.game{
+    width:95vw;
+    max-width:520px;
+    padding:18px;
+    border-radius:25px;
+    backdrop-filter:blur(12px);
+    background:rgba(255,255,255,0.08);
+    border:2px solid rgba(255,255,255,0.15);
+    box-shadow:0 0 45px rgba(255,120,255,0.3);
+}
+
+.title{
+    text-align:center;
+    font-size:34px;
+    margin-bottom:12px;
+}
+
+.topbar{
+    display:flex;
+    justify-content:space-between;
+    margin-bottom:12px;
+    flex-wrap:wrap;
+    gap:10px;
+}
+
+.board{
+    display:grid;
+    grid-template-columns:repeat(8,1fr);
+    gap:5px;
+    background:rgba(0,0,0,0.3);
+    padding:10px;
+    border-radius:20px;
+}
+
+.cell{
+    aspect-ratio:1/1;
+    border-radius:14px;
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    font-size:34px;
+    background:rgba(255,255,255,0.1);
+    cursor:pointer;
+    transition:0.2s;
+}
+
+.cell:active{
+    transform:scale(.9);
+}
+
+.selected{
+    transform:scale(1.15);
+    box-shadow:0 0 20px #fff;
+}
+
+.auth{
+    display:flex;
+    flex-direction:column;
+    gap:10px;
+    margin-bottom:15px;
+}
+
+.auth button{
+    border:none;
+    padding:12px;
+    border-radius:14px;
+    background:#7d5fff;
+    color:white;
+    font-size:16px;
+    cursor:pointer;
+}
+
+.pi-info{
+    text-align:center;
+    color:#a0ffcc;
+    font-size:14px;
+}
+
+.combo{
+    text-align:center;
+    margin-top:10px;
+    color:#ffe66d;
+    min-height:28px;
+}
+</style>
+</head>
+
+<body>
+
+<div class="game">
+
+    <div class="title">
+        🍓 Pi 消消乐 🍇
+    </div>
+
+    <div class="auth">
+
+        <button id="signinBtn">
+            🔐 Sign In With Pi
+        </button>
+
+        <div class="pi-info" id="piInfo">
+            等待 Pi 登录...
+        </div>
+
+    </div>
+
+    <div class="topbar">
+        <div>⭐ <span id="score">0</span></div>
+        <div>⏱️ <span id="time">60</span></div>
+        <div>🔥 <span id="comboNum">0</span></div>
+    </div>
+
+    <div class="board" id="board"></div>
+
+    <div class="combo" id="comboText"></div>
+
+</div>
+
+<script>
+
+// ==================== 游戏变量 ====================
+
+const fruits = [
+    "🍎","🍇","🍓","🍊",
+    "🥝","🍋","🍉","🫐"
+];
+
+const rows = 8;
+const cols = 8;
+
+let grid = [];
+let selected = null;
+
+let score = 0;
+let combo = 0;
+let timeLeft = 60;
+let gameRunning = true;
+let timerInterval = null;
+
+// ==================== DOM ====================
+
+const boardEl = document.getElementById("board");
+const scoreEl = document.getElementById("score");
+const timeEl = document.getElementById("time");
+const comboNumEl = document.getElementById("comboNum");
+const comboTextEl = document.getElementById("comboText");
+const piInfoEl = document.getElementById("piInfo");
+const signinBtn = document.getElementById("signinBtn");
+
+// ==================== Pi 登录 ====================
+
+async function authenticatePi(){
+
+    try{
+
+        piInfoEl.innerHTML = "⏳ 正在初始化 Pi SDK...";
+
+        await Pi.init({
+            version:"2.0",
+            sandbox:true
+        });
+
+        piInfoEl.innerHTML = "🔐 正在 Pi 登录...";
+
+        const scopes = ['username'];
+
+        const authResult = await Pi.authenticate(
+            scopes,
+            onIncompletePaymentFound
+        );
+
+        const accessToken =
+        authResult.accessToken;
+
+        // 发送 token 到后端验证
+        const response = await fetch("/api/auth/pi",{
+
+            method:"POST",
+
+            headers:{
+                "Content-Type":"application/json"
+            },
+
+            body:JSON.stringify({
+                accessToken
+            })
+        });
+
+        const data = await response.json();
+
+        if(!data.success){
+
+            throw new Error(
+                data.error || "Backend auth failed"
+            );
+        }
+
+        piInfoEl.innerHTML =
+        `🟢 已登录：${data.user.username}`;
+
+    }catch(err){
+
+        console.error(err);
+
+        piInfoEl.innerHTML =
+        `❌ 登录失败`;
+    }
+}
+
+function onIncompletePaymentFound(payment){
+    console.log(payment);
+}
+
+// 自动触发登录
+window.addEventListener("load", async ()=>{
+
+    if(window.Pi){
+
+        await authenticatePi();
+    }
+
+    createBoard();
+    renderBoard();
+    startTimer();
+});
+
+// 手动登录按钮
+signinBtn.addEventListener(
+    "click",
+    authenticatePi
+);
+
+// ==================== 游戏逻辑 ====================
+
+function createBoard(){
+
+    grid = [];
+
+    for(let r=0;r<rows;r++){
+
+        grid[r] = [];
+
+        for(let c=0;c<cols;c++){
+
+            grid[r][c] =
+            fruits[
+                Math.floor(
+                    Math.random()*fruits.length
+                )
+            ];
+        }
+    }
+}
+
+function renderBoard(){
+
+    boardEl.innerHTML = "";
+
+    for(let r=0;r<rows;r++){
+
+        for(let c=0;c<cols;c++){
+
+            const cell =
+            document.createElement("div");
+
+            cell.className = "cell";
+
+            if(
+                selected &&
+                selected.r===r &&
+                selected.c===c
+            ){
+                cell.classList.add("selected");
+            }
+
+            cell.innerHTML = grid[r][c];
+
+            cell.onclick = ()=>handleClick(r,c);
+
+            boardEl.appendChild(cell);
+        }
+    }
+}
+
+function handleClick(r,c){
+
+    if(!gameRunning) return;
+
+    if(!selected){
+
+        selected = {r,c};
+
+        renderBoard();
+
+        return;
+    }
+
+    const sr = selected.r;
+    const sc = selected.c;
+
+    selected = null;
+
+    if(
+        Math.abs(sr-r)+
+        Math.abs(sc-c)===1
+    ){
+
+        swap(sr,sc,r,c);
+
+        renderBoard();
+
+        const matches = checkMatches();
+
+        if(matches.length){
+
+            combo++;
+
+            comboNumEl.innerText = combo;
+
+            processMatches();
+
+        }else{
+
+            swap(sr,sc,r,c);
+
+            combo = 0;
+
+            comboNumEl.innerText = "0";
+
+            renderBoard();
+        }
+
+    }else{
+
+        renderBoard();
+    }
+}
+
+function swap(r1,c1,r2,c2){
+
+    [
+        grid[r1][c1],
+        grid[r2][c2]
+    ] = [
+        grid[r2][c2],
+        grid[r1][c1]
+    ];
+}
+
+function checkMatches(){
+
+    let matches = new Set();
+
+    // 横向
+    for(let r=0;r<rows;r++){
+
+        for(let c=0;c<cols-2;c++){
+
+            if(
+                grid[r][c]===grid[r][c+1] &&
+                grid[r][c]===grid[r][c+2]
+            ){
+
+                matches.add(`${r},${c}`);
+                matches.add(`${r},${c+1}`);
+                matches.add(`${r},${c+2}`);
+            }
+        }
+    }
+
+    // 纵向
+    for(let c=0;c<cols;c++){
+
+        for(let r=0;r<rows-2;r++){
+
+            if(
+                grid[r][c]===grid[r+1][c] &&
+                grid[r][c]===grid[r+2][c]
+            ){
+
+                matches.add(`${r},${c}`);
+                matches.add(`${r+1},${c}`);
+                matches.add(`${r+2},${c}`);
+            }
+        }
+    }
+
+    return Array
+    .from(matches)
+    .map(
+        s=>s.split(',').map(Number)
+    );
+}
+
+function processMatches(){
+
+    const matches = checkMatches();
+
+    if(matches.length===0){
+
+        comboTextEl.innerHTML = "";
+
+        return;
+    }
+
+    matches.forEach(([r,c])=>{
+        grid[r][c] = null;
+    });
+
+    score += matches.length * 20;
+
+    scoreEl.innerText = score;
+
+    comboTextEl.innerHTML =
+    `✨ 连消 x${matches.length}`;
+
+    setTimeout(()=>{
+
+        dropFruits();
+
+        fillFruits();
+
+        renderBoard();
+
+        setTimeout(processMatches,200);
+
+    },200);
+}
+
+function dropFruits(){
+
+    for(let c=0;c<cols;c++){
+
+        let newCol = [];
+
+        for(
+            let r=rows-1;
+            r>=0;
+            r--
+        ){
+
+            if(grid[r][c]!==null){
+
+                newCol.push(
+                    grid[r][c]
+                );
+            }
+        }
+
+        while(
+            newCol.length<rows
+        ){
+            newCol.push(null);
+        }
+
+        for(
+            let r=rows-1,i=0;
+            r>=0;
+            r--,i++
+        ){
+
+            grid[r][c] =
+            newCol[i];
+        }
+    }
+}
+
+function fillFruits(){
+
+    for(let r=0;r<rows;r++){
+
+        for(let c=0;c<cols;c++){
+
+            if(!grid[r][c]){
+
+                grid[r][c] =
+                fruits[
+                    Math.floor(
+                        Math.random()*
+                        fruits.length
+                    )
+                ];
+            }
+        }
+    }
+}
+
+function startTimer(){
+
+    clearInterval(timerInterval);
+
+    timerInterval =
+    setInterval(()=>{
+
+        timeLeft--;
+
+        timeEl.innerText = timeLeft;
+
+        if(timeLeft<=0){
+
+            clearInterval(timerInterval);
+
+            gameRunning = false;
+
+            alert(
+                `🎉 游戏结束\n得分：${score}`
+            );
+        }
+
+    },1000);
+}
+
+</script>
+
+</body>
+</html>
