@@ -1,0 +1,13 @@
+{
+  "name": "pi-fruit-match",
+  "version": "1.0.0",
+  "description": "Pi 炫彩水果消消乐",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  }
+}

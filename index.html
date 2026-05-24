@@ -1,0 +1,936 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no"/>
+<title>🍓 炫彩水果消消乐 - Pi版</title>
+
+<script src="https://sdk.minepi.com/pi-sdk.js"></script>
+
+<style>
+*{
+    margin:0;
+    padding:0;
+    box-sizing:border-box;
+    user-select:none;
+    -webkit-tap-highlight-color:transparent;
+}
+
+body{
+    background:
+    radial-gradient(circle at top,#2b1055,#12002f 70%);
+    min-height:100vh;
+    overflow:hidden;
+    font-family:Arial,sans-serif;
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    color:white;
+    position:relative;
+}
+
+body::after{
+    content:"";
+    position:fixed;
+    inset:0;
+    background:
+    radial-gradient(circle,
+    rgba(255,0,255,0.12),
+    transparent 70%);
+    animation:pulseBg 5s infinite;
+    pointer-events:none;
+}
+
+@keyframes pulseBg{
+    0%{opacity:0.3;}
+    50%{opacity:1;}
+    100%{opacity:0.3;}
+}
+
+.stars{
+    position:fixed;
+    inset:0;
+    overflow:hidden;
+    z-index:0;
+}
+
+.star{
+    position:absolute;
+    background:white;
+    border-radius:50%;
+    animation:twinkle 3s infinite alternate;
+}
+
+@keyframes twinkle{
+    from{opacity:0.3;}
+    to{opacity:1;}
+}
+
+.game{
+    position:relative;
+    z-index:2;
+    width:95vw;
+    max-width:520px;
+    padding:18px;
+    border-radius:25px;
+    backdrop-filter:blur(12px);
+    background:rgba(255,255,255,0.08);
+    border:2px solid rgba(255,255,255,0.15);
+    box-shadow:0 0 45px rgba(255,120,255,0.3);
+}
+
+.title{
+    text-align:center;
+    font-size:34px;
+    margin-bottom:10px;
+    text-shadow:0 0 20px #ff89ff;
+}
+
+.topbar{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    gap:10px;
+    flex-wrap:wrap;
+    margin-bottom:12px;
+    font-size:17px;
+}
+
+.timer{
+    color:#ff6b6b;
+    font-weight:bold;
+}
+
+.board{
+    display:grid;
+    grid-template-columns:repeat(8,1fr);
+    gap:5px;
+    background:rgba(0,0,0,0.3);
+    padding:10px;
+    border-radius:20px;
+    position:relative;
+}
+
+.cell{
+    aspect-ratio:1/1;
+    border-radius:15px;
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    font-size:36px;
+    cursor:pointer;
+    transition:all .2s;
+    background:rgba(255,255,255,0.1);
+    box-shadow:
+    inset 0 3px 8px rgba(255,255,255,.25),
+    0 4px 12px rgba(0,0,0,.4);
+    position:relative;
+    overflow:hidden;
+}
+
+.cell:active{
+    transform:scale(.88);
+}
+
+.selected{
+    transform:scale(1.2);
+    box-shadow:
+    0 0 30px #fff,
+    0 0 55px #ff77ff;
+}
+
+.clearing{
+    animation:electric .45s forwards;
+}
+
+@keyframes electric{
+    0%{
+        transform:scale(1);
+        filter:brightness(1);
+    }
+    30%{
+        transform:scale(1.3);
+        filter:brightness(3) hue-rotate(50deg);
+    }
+    100%{
+        transform:scale(0);
+        filter:brightness(1);
+    }
+}
+
+.combo{
+    text-align:center;
+    margin:12px 0;
+    color:#ffe66d;
+    font-size:22px;
+    height:32px;
+    text-shadow:0 0 12px #ff0;
+}
+
+.pi-info{
+    text-align:center;
+    margin-top:10px;
+    font-size:14px;
+    color:#a0ffcc;
+}
+
+.float-score{
+    position:absolute;
+    font-size:22px;
+    font-weight:bold;
+    color:#ffe66d;
+    text-shadow:0 0 10px #ff0;
+    pointer-events:none;
+    z-index:10;
+    animation:floatUp 1.2s forwards;
+}
+
+@keyframes floatUp{
+    0%{
+        transform:translateY(0);
+        opacity:1;
+    }
+    100%{
+        transform:translateY(-80px);
+        opacity:0;
+    }
+}
+</style>
+</head>
+
+<body>
+
+<div class="stars" id="stars"></div>
+
+<div class="game">
+
+    <div class="title">
+        🍓 炫彩水果消消乐 🍇
+    </div>
+
+    <div class="topbar">
+        <div>⭐ 分数：<span id="score">0</span></div>
+        <div class="timer">⏱️ <span id="time">60</span></div>
+        <div>🔥 连击：<span id="comboNum">0</span></div>
+        <div>🏆 Lv.<span id="level">1</span></div>
+    </div>
+
+    <div class="board" id="board"></div>
+
+    <div class="combo" id="comboText"></div>
+
+    <div class="pi-info">
+        🌟 Pi生态专版 • 自动登录中...
+    </div>
+
+</div>
+
+<script>
+
+// ==================== Pi SDK ====================
+
+async function initPi(){
+
+    try{
+
+        Pi.init({
+            version:"2.0",
+            sandbox:true
+        });
+
+        const scopes = ['username'];
+
+        const auth = await Pi.authenticate(
+            scopes,
+            onIncompletePaymentFound
+        );
+
+        console.log(auth.user);
+
+        document.querySelector(".pi-info").innerHTML =
+        `🟢 已连接 Pi：${auth.user.username}`;
+
+    }catch(err){
+
+        console.error(err);
+
+        document.querySelector(".pi-info").innerHTML =
+        "⚠️ Pi 登录失败";
+    }
+}
+
+function onIncompletePaymentFound(payment){
+    console.log(payment);
+}
+
+// ==================== 变量 ====================
+
+const fruits = [
+    "🍎","🍇","🍓","🍊",
+    "🥝","🍋","🍉","🫐"
+];
+
+const rows = 8;
+const cols = 8;
+
+let grid = [];
+
+let selected = null;
+
+let score = 0;
+let combo = 0;
+let level = 1;
+
+let timeLeft = 60;
+
+let gameRunning = true;
+
+let timerInterval = null;
+
+// ==================== DOM ====================
+
+const boardEl = document.getElementById("board");
+
+const scoreEl = document.getElementById("score");
+
+const timeEl = document.getElementById("time");
+
+const comboNumEl = document.getElementById("comboNum");
+
+const comboTextEl = document.getElementById("comboText");
+
+const levelEl = document.getElementById("level");
+
+// ==================== 星空 ====================
+
+const starsContainer = document.getElementById("stars");
+
+for(let i=0;i<200;i++){
+
+    const s = document.createElement("div");
+
+    s.className = "star";
+
+    s.style.width =
+    s.style.height =
+    (Math.random()*3+1)+"px";
+
+    s.style.left = Math.random()*100+"%";
+
+    s.style.top = Math.random()*100+"%";
+
+    s.style.animationDelay =
+    Math.random()*4+"s";
+
+    starsContainer.appendChild(s);
+}
+
+// ==================== 音效 ====================
+
+let audioCtx = null;
+
+function initAudio(){
+
+    if(!audioCtx){
+
+        audioCtx = new (
+            window.AudioContext ||
+            window.webkitAudioContext
+        )();
+    }
+
+    if(audioCtx.state === "suspended"){
+        audioCtx.resume();
+    }
+}
+
+function playSound(
+    freq,
+    duration,
+    type="triangle",
+    vol=0.12
+){
+
+    try{
+
+        const osc =
+        audioCtx.createOscillator();
+
+        const gain =
+        audioCtx.createGain();
+
+        osc.type = type;
+
+        osc.frequency.value = freq;
+
+        gain.gain.value = vol;
+
+        osc.connect(gain);
+
+        gain.connect(audioCtx.destination);
+
+        osc.start();
+
+        setTimeout(()=>{
+            osc.stop();
+        },duration);
+
+    }catch(e){}
+}
+
+// ==================== 创建棋盘 ====================
+
+function createBoard(){
+
+    grid = [];
+
+    for(let r=0;r<rows;r++){
+
+        grid[r] = [];
+
+        for(let c=0;c<cols;c++){
+
+            grid[r][c] =
+            fruits[
+                Math.floor(
+                    Math.random()*fruits.length
+                )
+            ];
+        }
+    }
+
+    removeStartMatches();
+}
+
+function removeStartMatches(){
+
+    let changed = true;
+
+    while(changed){
+
+        changed = false;
+
+        for(let r=0;r<rows;r++){
+
+            for(let c=0;c<cols;c++){
+
+                while(
+
+                    (
+                        c>=2 &&
+                        grid[r][c]===grid[r][c-1] &&
+                        grid[r][c]===grid[r][c-2]
+                    )
+
+                    ||
+
+                    (
+                        r>=2 &&
+                        grid[r][c]===grid[r-1][c] &&
+                        grid[r][c]===grid[r-2][c]
+                    )
+
+                ){
+
+                    grid[r][c] =
+                    fruits[
+                        Math.floor(
+                            Math.random()*fruits.length
+                        )
+                    ];
+
+                    changed = true;
+                }
+            }
+        }
+    }
+}
+
+// ==================== 渲染 ====================
+
+function renderBoard(){
+
+    boardEl.innerHTML = "";
+
+    for(let r=0;r<rows;r++){
+
+        for(let c=0;c<cols;c++){
+
+            const cell =
+            document.createElement("div");
+
+            cell.className = "cell";
+
+            cell.innerHTML =
+            grid[r][c] || "";
+
+            if(
+                selected &&
+                selected.r===r &&
+                selected.c===c
+            ){
+                cell.classList.add("selected");
+            }
+
+            cell.onclick =
+            ()=>handleClick(r,c);
+
+            boardEl.appendChild(cell);
+        }
+    }
+}
+
+// ==================== 点击 ====================
+
+function handleClick(r,c){
+
+    if(!gameRunning) return;
+
+    initAudio();
+
+    if(!selected){
+
+        selected = {r,c};
+
+        renderBoard();
+
+        return;
+    }
+
+    const sr = selected.r;
+    const sc = selected.c;
+
+    selected = null;
+
+    if(
+        Math.abs(r-sr)+
+        Math.abs(c-sc)===1
+    ){
+
+        swap(sr,sc,r,c);
+
+        renderBoard();
+
+        const matches = checkMatches();
+
+        if(matches.length>0){
+
+            combo++;
+
+            comboNumEl.innerText = combo;
+
+            playSound(520,120);
+
+            processMatches();
+
+        }else{
+
+            swap(sr,sc,r,c);
+
+            combo = 0;
+
+            comboNumEl.innerText = "0";
+
+            playSound(180,160,"sawtooth");
+
+            renderBoard();
+        }
+
+    }else{
+
+        renderBoard();
+    }
+}
+
+// ==================== 交换 ====================
+
+function swap(r1,c1,r2,c2){
+
+    [
+        grid[r1][c1],
+        grid[r2][c2]
+    ] = [
+        grid[r2][c2],
+        grid[r1][c1]
+    ];
+}
+
+// ==================== 检测 ====================
+
+function checkMatches(){
+
+    let matches = new Set();
+
+    // 横向
+
+    for(let r=0;r<rows;r++){
+
+        for(let c=0;c<cols-2;c++){
+
+            if(
+
+                grid[r][c] &&
+
+                grid[r][c]===grid[r][c+1] &&
+
+                grid[r][c]===grid[r][c+2]
+
+            ){
+
+                matches.add(`${r},${c}`);
+
+                matches.add(`${r},${c+1}`);
+
+                matches.add(`${r},${c+2}`);
+            }
+        }
+    }
+
+    // 纵向
+
+    for(let c=0;c<cols;c++){
+
+        for(let r=0;r<rows-2;r++){
+
+            if(
+
+                grid[r][c] &&
+
+                grid[r][c]===grid[r+1][c] &&
+
+                grid[r][c]===grid[r+2][c]
+
+            ){
+
+                matches.add(`${r},${c}`);
+
+                matches.add(`${r+1},${c}`);
+
+                matches.add(`${r+2},${c}`);
+            }
+        }
+    }
+
+    return Array
+    .from(matches)
+    .map(
+        s=>s.split(',').map(Number)
+    );
+}
+
+// ==================== 消除 ====================
+
+function processMatches(){
+
+    const matches = checkMatches();
+
+    if(matches.length===0){
+
+        comboTextEl.innerHTML = "";
+
+        return;
+    }
+
+    comboTextEl.innerHTML =
+    `✨ 连消 x${matches.length}`;
+
+    const cells =
+    boardEl.querySelectorAll(".cell");
+
+    let addScore =
+    matches.length *
+    20 *
+    Math.max(1,combo);
+
+    matches.forEach(([r,c])=>{
+
+        const idx = r*cols+c;
+
+        if(cells[idx]){
+
+            cells[idx]
+            .classList
+            .add("clearing");
+
+            createParticles(
+                cells[idx],
+                grid[r][c]
+            );
+        }
+
+        grid[r][c] = null;
+    });
+
+    score += addScore;
+
+    scoreEl.innerText = score;
+
+    playSound(
+        650 + matches.length*20,
+        180
+    );
+
+    if(score > level*1000){
+
+        level++;
+
+        levelEl.innerText = level;
+
+        timeLeft += 15;
+
+        comboTextEl.innerHTML =
+        `🚀 升级到 Level ${level}`;
+
+        playSound(
+            880,
+            280,
+            "sawtooth"
+        );
+    }
+
+    setTimeout(()=>{
+
+        dropFruits();
+
+        fillFruits();
+
+        renderBoard();
+
+        setTimeout(
+            processMatches,
+            250
+        );
+
+    },350);
+}
+
+// ==================== 粒子 ====================
+
+function createParticles(el,fruit){
+
+    for(let i=0;i<18;i++){
+
+        const p =
+        document.createElement("div");
+
+        p.style.position = "absolute";
+
+        p.style.left = "50%";
+
+        p.style.top = "50%";
+
+        p.style.fontSize = "22px";
+
+        p.textContent = fruit;
+
+        el.appendChild(p);
+
+        const angle =
+        Math.random()*Math.PI*2;
+
+        const dist = 55;
+
+        p.animate([
+
+            {
+                transform:
+                `translate(-50%,-50%) scale(1)`,
+
+                opacity:1
+            },
+
+            {
+                transform:
+                `translate(
+                ${Math.cos(angle)*dist}px,
+                ${Math.sin(angle)*dist}px
+                ) scale(.2)`,
+
+                opacity:0
+            }
+
+        ],{
+            duration:650
+        });
+
+        setTimeout(()=>{
+            p.remove();
+        },700);
+    }
+}
+
+// ==================== 下落 ====================
+
+function dropFruits(){
+
+    for(let c=0;c<cols;c++){
+
+        let newCol = [];
+
+        for(
+            let r=rows-1;
+            r>=0;
+            r--
+        ){
+
+            if(grid[r][c]!==null){
+
+                newCol.push(
+                    grid[r][c]
+                );
+            }
+        }
+
+        while(
+            newCol.length<rows
+        ){
+            newCol.push(null);
+        }
+
+        for(
+            let r=rows-1,i=0;
+            r>=0;
+            r--,i++
+        ){
+
+            grid[r][c] =
+            newCol[i];
+        }
+    }
+}
+
+// ==================== 填充 ====================
+
+function fillFruits(){
+
+    for(let r=0;r<rows;r++){
+
+        for(let c=0;c<cols;c++){
+
+            if(!grid[r][c]){
+
+                grid[r][c] =
+                fruits[
+                    Math.floor(
+                        Math.random()*
+                        fruits.length
+                    )
+                ];
+            }
+        }
+    }
+}
+
+// ==================== 计时 ====================
+
+function startTimer(){
+
+    clearInterval(timerInterval);
+
+    timeLeft = 60;
+
+    timeEl.innerText = timeLeft;
+
+    gameRunning = true;
+
+    timerInterval =
+    setInterval(()=>{
+
+        timeLeft--;
+
+        timeEl.innerText =
+        timeLeft;
+
+        if(timeLeft<=10){
+
+            timeEl.style.color =
+            "#ff0000";
+
+            playSound(
+                220,
+                80,
+                "square",
+                0.05
+            );
+        }
+
+        if(timeLeft<=0){
+
+            clearInterval(
+                timerInterval
+            );
+
+            gameRunning = false;
+
+            setTimeout(()=>{
+
+                const again =
+                confirm(
+`🎉 游戏结束！
+
+最终得分：
+${score}
+
+当前等级：
+Lv.${level}
+
+是否重新开始？`
+                );
+
+                if(again){
+
+                    restartGame();
+                }
+
+            },200);
+        }
+
+    },1000);
+}
+
+// ==================== 重开 ====================
+
+function restartGame(){
+
+    score = 0;
+
+    combo = 0;
+
+    level = 1;
+
+    selected = null;
+
+    scoreEl.innerText = "0";
+
+    comboNumEl.innerText = "0";
+
+    levelEl.innerText = "1";
+
+    comboTextEl.innerHTML = "";
+
+    timeEl.style.color = "#ff6b6b";
+
+    createBoard();
+
+    renderBoard();
+
+    startTimer();
+}
+
+// ==================== 启动 ====================
+
+window.onload = async ()=>{
+
+    await initPi();
+
+    createBoard();
+
+    renderBoard();
+
+    startTimer();
+};
+
+</script>
+
+</body>
+</html>
